@@ -13,7 +13,9 @@ package de.jpx3.intave.check.combat.heuristics.other;
 
 import de.jpx3.intave.check.combat.Heuristics;
 import de.jpx3.intave.check.combat.heuristics.ClassicHeuristic;
+import de.jpx3.intave.check.combat.heuristics.ClientTickBoundary;
 import de.jpx3.intave.check.combat.heuristics.HeuristicsClassicType;
+import de.jpx3.intave.check.combat.heuristics.RepeatedEvidence;
 import de.jpx3.intave.check.movement.physics.environment.SimulationEnvironment;
 import de.jpx3.intave.module.linker.packet.PacketSubscription;
 import de.jpx3.intave.module.mitigate.AttackNerfStrategy;
@@ -37,8 +39,18 @@ public final class PacketPlayerActionToggleHeuristic extends ClassicHeuristic<Pa
     }
   )
   public void receiveMovementPacket(User user) {
-    PacketSprintToggleHeuristicMeta heuristicMeta = metaOf(user);
-    heuristicMeta.reset();
+    if (ClientTickBoundary.endedByMovement(user)) {
+      metaOf(user).reset();
+    }
+  }
+
+  @PacketSubscription(
+    packetsIn = CLIENT_TICK_END
+  )
+  public void receiveTickEnd(User user) {
+    if (ClientTickBoundary.endedByTickEnd(user)) {
+      metaOf(user).reset();
+    }
   }
 
   @PacketSubscription(
@@ -76,12 +88,11 @@ public final class PacketPlayerActionToggleHeuristic extends ClassicHeuristic<Pa
       : heuristicMeta.sneakTogglesInTick++ >= 1;
 
     if (flag) {
-      // EntityPlayerSP#onUpdateWalkingPlayer sends at most one sprint and one sneak change per tick,
-      // and a 1.8 client ends every tick with a movement packet, so the tick boundary is exact.
+      // The client sends at most one sprint and one sneak change per tick (EntityPlayerSP /
+      // LocalPlayer), so only clients whose tick ends are visible are checked.
       // Two changes in one tick reset sprint for extra knockback (w-tap/super knockback modules).
-      boolean flyingPacketStream = clientData.emptyFlyingPacketsAreExplicitlySent();
       boolean alreadyFlagged = sprint ? heuristicMeta.flaggedSprintThisTick : heuristicMeta.flaggedSneakThisTick;
-      if (flyingPacketStream && !alreadyFlagged && !movementData.isInVehicle()) {
+      if (ClientTickBoundary.exact(user) && !alreadyFlagged && !movementData.isInVehicle()) {
         String message = sprint
           ? "sent too many sprint toggles per tick"
           : "sent too many sneak toggles per tick";
@@ -93,9 +104,12 @@ public final class PacketPlayerActionToggleHeuristic extends ClassicHeuristic<Pa
         } else {
           heuristicMeta.flaggedSneakThisTick = true;
         }
-        flag(user, message, "toggles: " + toggleCount);
-        if (sprint) {
-          user.nerf(AttackNerfStrategy.CANCEL, "sprint:toggles");
+        RepeatedEvidence evidence = sprint ? heuristicMeta.sprintEvidence : heuristicMeta.sneakEvidence;
+        if (evidence.record(System.currentTimeMillis())) {
+          flag(user, message, "toggles: " + toggleCount + ", " + evidence.count() + " times");
+          if (sprint) {
+            user.nerf(AttackNerfStrategy.CANCEL, "sprint:toggles");
+          }
         }
       }
     } else if (heuristicMeta.threshold > 0) {
@@ -107,6 +121,8 @@ public final class PacketPlayerActionToggleHeuristic extends ClassicHeuristic<Pa
     public int sprintTogglesInTick;
     public int sneakTogglesInTick;
     public boolean flaggedSprintThisTick, flaggedSneakThisTick;
+    private final RepeatedEvidence sprintEvidence = new RepeatedEvidence(2, 60_000);
+    private final RepeatedEvidence sneakEvidence = new RepeatedEvidence(2, 60_000);
     public double threshold;
 
     public void reset() {
