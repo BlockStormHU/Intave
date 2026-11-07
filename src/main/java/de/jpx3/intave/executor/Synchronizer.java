@@ -54,6 +54,14 @@ public final class Synchronizer {
     }
   }
 
+  /**
+   * Runs on the main thread, on Folia on the global region thread. Console commands must run there:
+   * Folia rejects them on a player's region thread ("Dispatching command async").
+   */
+  public static void synchronizeGlobally(Runnable runnable) {
+    synchronize(runnable);
+  }
+
   public static void synchronize(User user, Runnable runnable) {
     if (Tasks.isFoliaServer()) {
       Tasks.delayedNamed("Synchronizer.synchronize", wrapped(runnable), 0).startUserSync(user);

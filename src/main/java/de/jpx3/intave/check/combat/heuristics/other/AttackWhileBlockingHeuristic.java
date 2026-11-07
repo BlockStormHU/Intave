@@ -24,11 +24,16 @@ import de.jpx3.intave.module.mitigate.AttackNerfStrategy;
 import de.jpx3.intave.packet.reader.BlockDigReader;
 import de.jpx3.intave.packet.reader.BlockInteractionReader;
 import de.jpx3.intave.packet.reader.EntityUseReader;
+import de.jpx3.intave.packet.reader.WindowItemReader;
 import de.jpx3.intave.player.ItemProperties;
+import de.jpx3.intave.share.PlayerHand;
 import de.jpx3.intave.user.User;
 import de.jpx3.intave.user.meta.CheckCustomMetadata;
 import de.jpx3.intave.user.meta.ProtocolMetadata;
+import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
+
+import java.util.Map;
 
 import static de.jpx3.intave.check.movement.physics.environment.MoveMetric.TELEPORT;
 import static de.jpx3.intave.module.linker.packet.PacketId.Client.*;
@@ -49,8 +54,9 @@ import static de.jpx3.intave.module.linker.packet.PacketId.Server.WINDOW_ITEMS;
  * <p>Tracked blocking items always start on use and never finish by themselves: the sword when
  * both client and server are 1.8, the shield in either hand when both are 1.9+. Mixed versions are
  * skipped, since protocol translation lets the client and the server disagree about blocking. The
- * client can stop silently when its item is replaced, its hands swapped or its shield put on
- * cooldown, so those end the tracked block (missing a flag rather than raising a wrong one). Only
+ * client can stop silently when its item is replaced (1.8-1.13: any new stack in the blocking
+ * hand, as sword durability updates after hits; 1.14+: another item type), its hands swapped or a
+ * cooldown set, so those end the tracked block (missing a flag rather than raising a wrong one). Only
  * the order of the client's own packets is compared, so latency cannot cause a detection.
  */
 public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackWhileBlockingHeuristic.BlockingStateMeta> {
@@ -69,9 +75,13 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
     if (!reader.isDirectItemUseRequest()) {
       return;
     }
-    ItemStack item = user.meta().inventory().itemInHand(reader.hand());
+    PlayerHand hand = reader.hand();
+    ItemStack item = user.meta().inventory().itemInHand(hand);
     if (startsBlocking(user, item)) {
-      metaOf(user).blocking = true;
+      BlockingStateMeta meta = metaOf(user);
+      meta.blocking = true;
+      meta.hand = hand;
+      meta.itemType = item.getType();
     }
   }
 
@@ -115,7 +125,38 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
 
   @PacketSubscription(
     packetsOut = {
-      SET_SLOT, WINDOW_ITEMS, HELD_ITEM_SLOT_OUT, RESPAWN, SET_COOLDOWN
+      SET_SLOT, WINDOW_ITEMS
+    }
+  )
+  public void sentItems(User user, WindowItemReader reader) {
+    BlockingStateMeta meta = metaOf(user);
+    if (!meta.blocking) {
+      return;
+    }
+    int windowId = reader.windowId();
+    if (windowId != 0 && windowId != -2) {
+      // another container is open: its slot numbers are not tracked here
+      meta.blocking = false;
+      return;
+    }
+    boolean offHand = meta.hand == PlayerHand.OFF_HAND;
+    int heldSlot = user.meta().inventory().handSlot();
+    int slot = windowId == -2 ? (offHand ? 40 : heldSlot) : (offHand ? 45 : 36 + heldSlot);
+    Map<Integer, ItemStack> items = reader.itemMap();
+    if (!items.containsKey(slot)) {
+      return;
+    }
+    ItemStack replacement = items.get(slot);
+    Material type = replacement == null || replacement.getAmount() == 0 ? Material.AIR : replacement.getType();
+    // same rule as InventoryMetadata#applyClientActiveItemReplacement
+    if (user.meta().protocol().protocolVersion() < ProtocolMetadata.VER_1_14 || type != meta.itemType) {
+      meta.blocking = false;
+    }
+  }
+
+  @PacketSubscription(
+    packetsOut = {
+      HELD_ITEM_SLOT_OUT, RESPAWN, SET_COOLDOWN
     }
   )
   public void sentInventoryChange(User user) {
@@ -187,6 +228,8 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
 
   public static final class BlockingStateMeta extends CheckCustomMetadata {
     private boolean blocking;
+    private PlayerHand hand;
+    private Material itemType;
     private boolean releasedThisTick;
     private boolean recordedThisTick;
     private final RepeatedEvidence evidence = new RepeatedEvidence(2, 60_000);
