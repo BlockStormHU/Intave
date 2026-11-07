@@ -68,7 +68,6 @@ public final class InventoryMetadata {
   private volatile boolean handActive;
   private volatile PlayerHand activeHand;
   private volatile long activeItemUseSequence;
-  private long clientConfirmedItemUseSequence = -1;
   private long serverCompletedItemUseSequence = -1;
   private final Lock handActiveLock = new ReentrantLock();
   private Material activeItemType;
@@ -184,17 +183,21 @@ public final class InventoryMetadata {
     }
   }
 
-  public void applyClientItemUseFlags(long expectedSequence, boolean usingItem) {
+  public void applyClientItemUseFlags(byte flags) {
+    if (!user.meta().protocol().combatUpdate()) {
+      return;
+    }
     handActiveLock.lock();
     try {
-      if (!handActive || activeItemUseSequence != expectedSequence) {
-        return;
-      }
-      if (usingItem) {
-        clientConfirmedItemUseSequence = expectedSequence;
-      } else if (clientConfirmedItemUseSequence == expectedSequence
-        || serverCompletedItemUseSequence == expectedSequence) {
-        deactivateHand();
+      if ((flags & 1) == 0) {
+        deactivateHand(false);
+      } else if (!handActive) {
+        PlayerHand hand = (flags & 2) != 0 ? PlayerHand.OFF_HAND : PlayerHand.MAIN_HAND;
+        ItemStack item = hand == PlayerHand.OFF_HAND ? offhandItem() : heldItem();
+        ItemProperties.ItemUseProfile profile = ItemProperties.itemUseProfile(user, item);
+        if (profile != null) {
+          activateHand(hand, item, profile, false);
+        }
       }
     } finally {
       handActiveLock.unlock();
@@ -396,6 +399,15 @@ public final class InventoryMetadata {
     ItemStack item,
     ItemProperties.ItemUseProfile profile
   ) {
+    activateHand(hand, item, profile, true);
+  }
+
+  private void activateHand(
+    PlayerHand hand,
+    ItemStack item,
+    ItemProperties.ItemUseProfile profile,
+    boolean clientRequested
+  ) {
     handActiveLock.lock();
     try {
       if (handActive) {
@@ -403,7 +415,6 @@ public final class InventoryMetadata {
       }
       this.handActive = true;
       this.activeItemUseSequence++;
-      this.clientConfirmedItemUseSequence = -1;
       this.serverCompletedItemUseSequence = -1;
       this.activeHand = hand;
       this.activeItemType = item.getType();
@@ -420,9 +431,11 @@ public final class InventoryMetadata {
       }
       this.pastItemUsageTransition = 0;
       this.handActiveTicks = 0;
-      this.activatedItemThisTick |= !profile.canSprint() || profile.speedMultiplier() < 1.0F;
-      if (activatedItemThisTick && deactivatedItemThisTick) {
-        suspiciousNoSlowdownPacketPatternThisTick = true;
+      if (clientRequested) {
+        this.activatedItemThisTick |= !profile.canSprint() || profile.speedMultiplier() < 1.0F;
+        if (activatedItemThisTick && deactivatedItemThisTick) {
+          suspiciousNoSlowdownPacketPatternThisTick = true;
+        }
       }
 
       if (IntaveControl.DEBUG_ITEM_USAGE) {
@@ -435,6 +448,10 @@ public final class InventoryMetadata {
   }
 
   public void deactivateHand() {
+    deactivateHand(true);
+  }
+
+  private void deactivateHand(boolean clientRequested) {
     handActiveLock.lock();
     try {
       deactivateHandAtTickEnd = false;
@@ -462,13 +479,14 @@ public final class InventoryMetadata {
       }
       this.handActive = false;
       this.activeItemUseSequence++;
-      this.clientConfirmedItemUseSequence = -1;
       this.serverCompletedItemUseSequence = -1;
       this.pastItemUsageTransition = 0;
       this.handActiveTicks = 0;
-      this.deactivatedItemThisTick |= !activeItemAllowsSprinting || activeItemUseSpeedMultiplier < 1.0F;
-      if (activatedItemThisTick && deactivatedItemThisTick) {
-        suspiciousNoSlowdownPacketPatternThisTick = true;
+      if (clientRequested) {
+        this.deactivatedItemThisTick |= !activeItemAllowsSprinting || activeItemUseSpeedMultiplier < 1.0F;
+        if (activatedItemThisTick && deactivatedItemThisTick) {
+          suspiciousNoSlowdownPacketPatternThisTick = true;
+        }
       }
       Material activeItem = this.activeItemType;
       if (IntaveControl.DEBUG_ITEM_USAGE) {
@@ -593,7 +611,6 @@ public final class InventoryMetadata {
       }
       handActive = true;
       activeItemUseSequence++;
-      clientConfirmedItemUseSequence = -1;
       serverCompletedItemUseSequence = -1;
       activeHand = PlayerHand.MAIN_HAND;
       activeItemType = interrupted.itemType;
@@ -659,7 +676,6 @@ public final class InventoryMetadata {
   public void setHandActive(boolean handActive) {
     this.handActive = handActive;
     this.activeItemUseSequence++;
-    this.clientConfirmedItemUseSequence = -1;
     this.serverCompletedItemUseSequence = -1;
     if (!handActive) {
       this.activeHand = null;
@@ -686,7 +702,6 @@ public final class InventoryMetadata {
     this.handSlot = heldSlot;
     this.handActive = handActive;
     this.activeItemUseSequence++;
-    this.clientConfirmedItemUseSequence = -1;
     this.serverCompletedItemUseSequence = -1;
     this.activeHand = activeHand;
     this.handActiveTicks = handActiveTicks;
