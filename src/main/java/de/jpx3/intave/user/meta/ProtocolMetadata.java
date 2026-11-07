@@ -18,6 +18,7 @@ import de.jpx3.intave.entity.position.RotationTarget;
 import de.jpx3.intave.share.Position;
 import de.jpx3.intave.user.User;
 import de.jpx3.intave.version.ProtocolVersionConverter;
+import de.jpx3.intave.version.ServerProtocolVersion;
 import org.bukkit.entity.Player;
 
 import java.util.*;
@@ -108,9 +109,7 @@ public final class ProtocolMetadata {
       minecraftVersion = MinecraftVersions.VER1_19_1;
     } else {
       minecraftVersion = new MinecraftVersion(versionString);
-      MinecraftVersion server = MinecraftVersion.current();
-      MinecraftVersion client = new MinecraftVersion(versionString);
-      behind = !client.isAtLeast(server);
+      behind = behind(protocolVersion, minecraftVersion);
     }
     this.protocolVersion = protocolVersion;
     this.versionString = versionString;
@@ -382,6 +381,9 @@ public final class ProtocolMetadata {
     return MinecraftVersions.VER1_21.atOrAbove();
   }
 
+  /** Wall clock of the last client tick end packet, kept by the combat heuristics. */
+  public volatile long lastClientTickEnd;
+
   public boolean sendsClientTickEnd() {
     return protocolVersion >= VER_1_21_2 && MinecraftVersions.VER1_21_2.atOrAbove();
   }
@@ -452,16 +454,31 @@ public final class ProtocolMetadata {
 
   public boolean outdatedClient() {
     if (behind == null || refreshes < 2) {
-      MinecraftVersion server = MinecraftVersion.current();
       MinecraftVersion client;
       try {
         client = new MinecraftVersion(versionAsString(protocolVersion));
       } catch (Exception exception) {
         client = MinecraftVersions.VER1_19_4;
       }
-      behind = !client.isAtLeast(server);
+      behind = behind(protocolVersion, client);
     }
     return behind;
+  }
+
+  private static boolean behind(int clientProtocol, MinecraftVersion client) {
+    return behind(clientProtocol, client, ServerProtocolVersion.current(), MinecraftVersion.current());
+  }
+
+  /**
+   * A client speaking the server's protocol (or a newer one) is never behind. Version names alone
+   * are not enough: one protocol covers several releases (775 = 26.1, 26.1.1, 26.1.2) and the
+   * client's name is just the range label, so a 26.1.2 server would call every 26.1.x client behind.
+   */
+  static boolean behind(int clientProtocol, MinecraftVersion client, int serverProtocol, MinecraftVersion server) {
+    if (serverProtocol > 0 && clientProtocol >= serverProtocol) {
+      return false;
+    }
+    return !client.isAtLeast(server);
   }
 
   public String versionString() {

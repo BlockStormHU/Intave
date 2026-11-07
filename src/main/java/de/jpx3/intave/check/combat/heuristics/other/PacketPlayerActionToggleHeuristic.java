@@ -48,6 +48,7 @@ public final class PacketPlayerActionToggleHeuristic extends ClassicHeuristic<Pa
     packetsIn = CLIENT_TICK_END
   )
   public void receiveTickEnd(User user) {
+    ClientTickBoundary.observeTickEnd(user);
     if (ClientTickBoundary.endedByTickEnd(user)) {
       metaOf(user).reset();
     }

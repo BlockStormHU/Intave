@@ -84,6 +84,7 @@ public final class MultiTargetHeuristic extends ClassicHeuristic<MultiTargetHeur
     packetsIn = CLIENT_TICK_END
   )
   public void receiveTickEnd(User user) {
+    ClientTickBoundary.observeTickEnd(user);
     if (ClientTickBoundary.endedByTickEnd(user)) {
       endTick(metaOf(user));
     }

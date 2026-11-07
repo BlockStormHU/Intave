@@ -171,6 +171,7 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
     packetsIn = CLIENT_TICK_END
   )
   public void receiveTickEnd(User user) {
+    ClientTickBoundary.observeTickEnd(user);
     endTick(metaOf(user));
   }
 

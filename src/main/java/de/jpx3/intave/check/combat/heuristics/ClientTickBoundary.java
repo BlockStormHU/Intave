@@ -26,10 +26,24 @@ public final class ClientTickBoundary {
   private ClientTickBoundary() {
   }
 
-  /** Whether every client tick end can be observed for this user. */
+  private static final long TICK_END_FRESHNESS_MILLIS = 1000;
+
+  /**
+   * Whether every client tick end can be observed for this user. Tick end packets must actually
+   * arrive: a modified client or a proxy that drops them would otherwise merge many ticks into one.
+   */
   public static boolean exact(User user) {
     ProtocolMetadata protocol = user.meta().protocol();
-    return protocol.emptyFlyingPacketsAreExplicitlySent() || protocol.sendsClientTickEnd();
+    if (protocol.emptyFlyingPacketsAreExplicitlySent()) {
+      return true;
+    }
+    return protocol.sendsClientTickEnd()
+      && System.currentTimeMillis() - protocol.lastClientTickEnd < TICK_END_FRESHNESS_MILLIS;
+  }
+
+  /** Records a received client tick end packet. */
+  public static void observeTickEnd(User user) {
+    user.meta().protocol().lastClientTickEnd = System.currentTimeMillis();
   }
 
   /** Whether a movement packet from this user ends a client tick. */

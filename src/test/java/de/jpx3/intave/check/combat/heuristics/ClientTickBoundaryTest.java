@@ -35,9 +35,20 @@ final class ClientTickBoundaryTest {
 
   @Test
   void tickEndPacketsNeedClientAndServerFrom1212() {
-    assertBoundary("26.1.2", VER_1_21_2, true, false, true);
+    assertBoundary("26.1.2", VER_1_21_2, false, false, true);
     assertBoundary("26.1.2", VER_1_21, false, false, false);
     assertBoundary("1.21.1", VER_1_21_2, false, false, false);
+  }
+
+  @Test
+  void tickEndsCountOnlyWhileTheyArrive() {
+    MinecraftVersion.setCurrent(new MinecraftVersion("26.1.2"));
+    User user = user(VER_1_21_2);
+    assertEquals(false, ClientTickBoundary.exact(user), "no tick end received yet");
+    ClientTickBoundary.observeTickEnd(user);
+    assertEquals(true, ClientTickBoundary.exact(user), "tick ends arriving");
+    user.meta().protocol().lastClientTickEnd = System.currentTimeMillis() - 5000;
+    assertEquals(false, ClientTickBoundary.exact(user), "tick ends stopped");
   }
 
   @Test
