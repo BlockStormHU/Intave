@@ -87,6 +87,10 @@ check:
     swing-order: 3
     sprint-toggles: 2 # prevents spamming sprint packets to apply more knockback on targets
     tool-switch: 3 # prevents slot switches while breaking blocks
+    # Impossible for vanilla 1.8 clients (only checked for 1.8 clients on a 1.8 server)
+    multi-target: 5 # two different entities attacked in one tick (multi/switch aura)
+    attack-while-blocking: 5 # attacks while sword blocking or in the unblock tick (autoblock aura)
+    rotation-duplicate: 3 # identical rotation re-sent (silent rotations of aura/scaffold modules)
 
     thresholds:
       20:

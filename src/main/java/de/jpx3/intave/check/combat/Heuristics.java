@@ -47,12 +47,16 @@ public final class Heuristics extends Check {
     appendCheckPart(new BlockingHeuristic(this));
     appendCheckPart(new NoSwingHeuristic(this));
     appendCheckPart(new CivbreakHeuristic(this));
+
+    appendCheckPart(new MultiTargetHeuristic(this));
+    appendCheckPart(new AttackWhileBlockingHeuristic(this));
+    appendCheckPart(new RotationDuplicateHeuristic(this));
   }
 
   private void loadClassicConfiguration() {
     CheckConfiguration.CheckSettings settings = configuration().settings();
     for (HeuristicsClassicType classType : HeuristicsClassicType.values()) {
-      int violationLevelIncrease = settings.intBy(classType.configurationName());
+      int violationLevelIncrease = settings.intBy(classType.configurationName(), classType.defaultViolationLevel());
       classicViolationLevelMap.put(classType, violationLevelIncrease);
     }
   }
