@@ -288,8 +288,25 @@ public final class PacketSubscriptionLinker extends Module {
     return false;
   }
 
+  /**
+   * Names to try when a client packet name is not registered on this server. ProtocolLib 5
+   * registers the legacy (1.8) PacketPlayInBlockPlace as USE_ITEM_ON, so subscriptions to
+   * BLOCK_PLACE resolved to nothing there and silently never received a placement.
+   */
+  private static final Map<String, List<String>> LEGACY_CLIENT_ALIASES =
+    Collections.singletonMap("BLOCK_PLACE", Arrays.asList("USE_ITEM_ON", "USE_ITEM"));
+
   private PacketType[] translateClientPacketType(PacketId.Client clientPacket, boolean debug) {
-    PacketType[] results = searchByName(selectPacketTypesFor(ConnectionSide.CLIENT_SIDE), clientPacket.lookupName());
+    Collection<PacketType> clientTypes = selectPacketTypesFor(ConnectionSide.CLIENT_SIDE);
+    PacketType[] results = searchByName(clientTypes, clientPacket.lookupName());
+    if (results.length == 0) {
+      for (String alias : LEGACY_CLIENT_ALIASES.getOrDefault(clientPacket.lookupName(), Collections.emptyList())) {
+        results = searchByName(clientTypes, alias);
+        if (results.length > 0) {
+          break;
+        }
+      }
+    }
     if (debug) {
       IntaveLogger.logger().info("Translated " + clientPacket.lookupName() + " to " + Arrays.toString(results));
     }
