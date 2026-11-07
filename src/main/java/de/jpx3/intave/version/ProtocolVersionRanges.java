@@ -53,7 +53,19 @@ final class ProtocolVersionRanges implements Iterable<ProtocolVersionRange> {
         .filter(range -> range.includes(version))
         .findFirst()
         .orElseGet(() -> newest().orElseGet(() -> new ProtocolVersionRange(Integer.MIN_VALUE, Integer.MAX_VALUE, "1.0.0")));
-    return protocolVersionRange.version();
+    String byRange = protocolVersionRange.version();
+    // A range only names the newest version it covers, so a gap in the ranges (in the bundled or a
+    // downloaded table) would name a newer release. An explicit release declaration is exact.
+    List<MinecraftVersion> declared = new ArrayList<>();
+    declaredReleases.forEach((release, protocol) -> {
+      if (protocol == version) {
+        declared.add(release);
+      }
+    });
+    if (declared.isEmpty() || declared.contains(new MinecraftVersion(byRange))) {
+      return byRange;
+    }
+    return Collections.max(declared).getVersion();
   }
 
   public int nearestProtocolVersion(String version) {
