@@ -35,6 +35,7 @@ public final class Speed extends PlayerCheckPart<PlacementAnalysis> {
 
 	private final List<Long> placementSpeedHistory = GarbageCollector.watch(new ArrayList<>());
 	private final List<Location> placementHistory = GarbageCollector.watch(new ArrayList<>());
+	private final PlacementArrivals arrivals = new PlacementArrivals();
 	private long lastPlacement;
 	private long lastHardFaultClick;
 
@@ -47,10 +48,20 @@ public final class Speed extends PlayerCheckPart<PlacementAnalysis> {
 			BLOCK_PLACE, USE_ITEM
 		}
 	)
-	public void receivePlacementPacket(PacketType type, BlockInteractionReader reader) {
-		if (type == PacketType.Play.Client.BLOCK_PLACE && reader.enumDirection() == 255) {
-			lastHardFaultClick = System.currentTimeMillis();
+	public void receivePlacementPacket(User user, PacketType type, BlockInteractionReader reader) {
+		if (type != PacketType.Play.Client.BLOCK_PLACE) {
+			return;
 		}
+		if (reader.enumDirection() == 255) {
+			lastHardFaultClick = System.currentTimeMillis();
+		} else if (holdsPlaceableBlock(user)) {
+			arrivals.packetReceived(System.currentTimeMillis());
+		}
+	}
+
+	private static boolean holdsPlaceableBlock(User user) {
+		Material held = user.meta().inventory().heldItemType();
+		return held != null && held.isBlock() && held.isSolid();
 	}
 
 	@BukkitEventSubscription
@@ -63,6 +74,8 @@ public final class Speed extends PlayerCheckPart<PlacementAnalysis> {
 		Block block = place.getBlockPlaced();
 		Block blockAgainst = place.getBlockAgainst();
 
+		// time the placement by its packet, not by this (possibly lag-delayed) server-thread event
+		long placedAt = arrivals.placedAt(System.currentTimeMillis());
 		if (blockUnderPlayer(block, player) && blockCollisions(block) < 2) {
 			List<Long> placementSpeedHistory = this.placementSpeedHistory;
 
@@ -71,10 +84,10 @@ public final class Speed extends PlayerCheckPart<PlacementAnalysis> {
 			}
 
 			if (block.getY() == blockAgainst.getY()) {
-				placementSpeedHistory.add(System.currentTimeMillis() - lastPlacement);
-				lastPlacement = System.currentTimeMillis();
+				placementSpeedHistory.add(placedAt - lastPlacement);
+				lastPlacement = placedAt;
 			} else {
-				placementSpeedHistory.add(System.currentTimeMillis() - lastPlacement + 1000);
+				placementSpeedHistory.add(placedAt - lastPlacement + 1000);
 			}
 
 			if (placementSpeedHistory.size() >= CHECK_LENGTH) {

@@ -5,12 +5,15 @@ import de.jpx3.intave.check.world.PlacementAnalysis;
 import de.jpx3.intave.cleanup.GarbageCollector;
 import de.jpx3.intave.module.Modules;
 import de.jpx3.intave.module.linker.bukkit.BukkitEventSubscription;
+import de.jpx3.intave.module.linker.packet.PacketSubscription;
 import de.jpx3.intave.module.violation.Violation;
 import de.jpx3.intave.module.violation.ViolationContext;
+import de.jpx3.intave.packet.reader.BlockInteractionReader;
 import de.jpx3.intave.user.User;
 import de.jpx3.intave.user.meta.EffectMetadata;
 import de.jpx3.intave.user.meta.MetadataBundle;
 import de.jpx3.intave.user.meta.MovementMetadata;
+import com.comphenix.protocol.PacketType;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -22,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static de.jpx3.intave.check.world.PlacementAnalysis.COMMON_FLAG_MESSAGE;
+import static de.jpx3.intave.module.linker.packet.PacketId.Client.BLOCK_PLACE;
 import static de.jpx3.intave.module.violation.Violation.ViolationFlags.DISPLAY_IN_ALL_VERBOSE_MODES;
 
 public final class Sneak extends PlayerCheckPart<PlacementAnalysis> {
@@ -29,10 +33,26 @@ public final class Sneak extends PlayerCheckPart<PlacementAnalysis> {
 
 	private final List<Long> placementSpeedHistory = GarbageCollector.watch(new ArrayList<>());
 	private final List<Location> placementHistory = GarbageCollector.watch(new ArrayList<>());
+	private final PlacementArrivals arrivals = new PlacementArrivals();
 	private long lastPlacement;
 
 	public Sneak(User user, PlacementAnalysis parentCheck) {
 		super(user, parentCheck);
+	}
+
+	@PacketSubscription(
+		packetsIn = {
+			BLOCK_PLACE
+		}
+	)
+	public void receivePlacementPacket(User user, PacketType type, BlockInteractionReader reader) {
+		if (type != PacketType.Play.Client.BLOCK_PLACE || reader.enumDirection() == 255) {
+			return;
+		}
+		Material held = user.meta().inventory().heldItemType();
+		if (held != null && held.isBlock() && held.isSolid()) {
+			arrivals.packetReceived(System.currentTimeMillis());
+		}
 	}
 
 	@BukkitEventSubscription
@@ -44,16 +64,18 @@ public final class Sneak extends PlayerCheckPart<PlacementAnalysis> {
 		EffectMetadata potionData = metadata.potions();
 		Block block = place.getBlockPlaced();
 		Block blockAgainst = place.getBlockAgainst();
+		// time the placement by its packet, not by this (possibly lag-delayed) server-thread event
+		long placedAt = arrivals.placedAt(System.currentTimeMillis());
 		if (blockUnderPlayer(block, player) && blockCollisions(block) < 2) {
 			List<Long> placementSpeedHistory = this.placementSpeedHistory;
 			if (placementSpeedHistory.size() >= CHECK_LENGTH) {
 				placementSpeedHistory.remove(0);
 			}
 			if (block.getY() == blockAgainst.getY()) {
-				placementSpeedHistory.add(System.currentTimeMillis() - lastPlacement);
-				lastPlacement = System.currentTimeMillis();
+				placementSpeedHistory.add(placedAt - lastPlacement);
+				lastPlacement = placedAt;
 			} else {
-				placementSpeedHistory.add(System.currentTimeMillis() - lastPlacement + 1000);
+				placementSpeedHistory.add(placedAt - lastPlacement + 1000);
 			}
 			if (placementSpeedHistory.size() >= CHECK_LENGTH) {
 				double average = placementSpeedHistory.stream().mapToDouble(value -> value).average().orElse(500);

@@ -142,7 +142,7 @@ public final class CompletionDurationCheck extends MetaCheckPart<BreakSpeedLimit
         long actualDuration = System.currentTimeMillis() - meta.breakProcessStartTime;
         long exceeded = Math.max(0, requiredDuration - actualDuration);
 
-        if (exceeded > 100 && meta.balance++ >= 2) {
+        if (exceeded > toleratedEarlyFinish(user.latencyJitter()) && meta.balance++ >= 2) {
           String message = "broke block too quickly";
           String details = MathHelper.formatDouble(exceeded / 50d, 2) + " ticks faster than expected";
           ViolationProcessor violationProcessor = Modules.violationProcessor();
@@ -165,6 +165,19 @@ public final class CompletionDurationCheck extends MetaCheckPart<BreakSpeedLimit
         meta.breakProcess = false;
         meta.maximumBlockDamage = Float.MIN_VALUE;
     }
+  }
+
+  private static final long BASE_EARLY_FINISH_TOLERANCE = 100;
+  private static final long MAX_JITTER_ALLOWANCE = 250;
+
+  /**
+   * The start and stop packets are timed on arrival, so a network stall that releases the start
+   * packet together with later packets makes a legitimate break look shorter than it was.
+   * Players with unstable connections therefore get extra room proportional to their jitter.
+   */
+  static long toleratedEarlyFinish(int latencyJitterMillis) {
+    long jitterAllowance = Math.min(MAX_JITTER_ALLOWANCE, 2L * Math.max(0, latencyJitterMillis));
+    return BASE_EARLY_FINISH_TOLERANCE + jitterAllowance;
   }
 
   private void refreshBlocksAround(Player player, Location targetLocation) {
