@@ -13,6 +13,7 @@ package de.jpx3.intave.check.movement.physics.branch;
 
 import de.jpx3.intave.check.movement.physics.environment.SimulationEnvironment;
 import de.jpx3.intave.user.User;
+import de.jpx3.intave.user.meta.AbilityMetadata;
 import de.jpx3.intave.user.meta.ProtocolMetadata;
 
 import java.util.Collection;
@@ -71,7 +72,9 @@ final class SprintingBrancher extends MovementSearchBrancher {
   }
 
   private boolean isValidSprintingSelection(User user, boolean sprinting) {
-    if (sprinting && user.meta().abilities().foodLevel < 6) {
+    // EntityPlayerSP: sprinting needs foodLevel > 6, unless the player may fly
+    AbilityMetadata abilities = user.meta().abilities();
+    if (sprinting && abilities.foodLevel <= 6 && !abilities.allowFlying()) {
       return false;
     }
     return true;

@@ -39,7 +39,7 @@ public final class PlayerVitalsTracker extends Module {
     float saturation = reader.saturation();
 
     user.packetTickFeedback(event, () -> {
-      if (foodLevel <= 6) {
+      if (foodLevel <= 6 && !user.meta().abilities().allowFlying()) {
         user.meta().movement().setSprinting(false);
       }
       user.meta().abilities().synchronizeVitals(health, foodLevel, saturation);

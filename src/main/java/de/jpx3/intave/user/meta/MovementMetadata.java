@@ -623,7 +623,7 @@ public final class MovementMetadata implements SimulationEnvironment {
       && !shouldHaveSwimmingPose()
       && !areEyesInWater()
       && ticksPast(SPRINT_CHANGE) > 2;
-    if (inventoryData.inventoryOpen() || abilities.foodLevel <= 6) {
+    if (inventoryData.inventoryOpen() || (abilities.foodLevel <= 6 && !abilities.allowFlying())) {
       sprintingAllowed = false;
     }
   }
