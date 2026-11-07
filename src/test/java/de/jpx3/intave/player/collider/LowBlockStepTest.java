@@ -45,6 +45,23 @@ final class LowBlockStepTest {
     assertStepsOnto("WHITE_CARPET", 0.0625);
   }
 
+  /**
+   * Sprint-jumping into a two block high tunnel: vanilla's second step variant (box widened by the
+   * horizontal motion) is capped by the ceiling, fits under it and wins on distance, so the jump turns
+   * into a slide into the tunnel instead of rising and stopping at the edge.
+   */
+  @Test
+  void jumpIntoTunnelSlidesUnderTheCeiling() {
+    Position position = Position.of(0.5D, 1.0D, 0.3019D);
+    User user = user(position, Material.GLASS, 1.0D, 3, 1);
+    SimulationResult result = Colliders.collision(
+      user, user.meta().movement().mutableView(), new Motion(0.0D, 0.42D, 0.537D), false,
+      position.getX(), position.getY(), position.getZ()
+    );
+    assertEquals(0.0D, result.offsetMotion().motionY, 1.0E-9);
+    assertEquals(0.537D, result.offsetMotion().motionZ, 1.0E-9);
+  }
+
   private static void assertStepsOnto(String materialName, double height) {
     Material material = Material.valueOf(materialName);
     Position position = Position.of(0.5D, 1.0D, 0.6942D);
@@ -59,14 +76,18 @@ final class LowBlockStepTest {
   }
 
   private static User user(Position position, Material low, double height) {
+    return user(position, low, height, 1, 1);
+  }
+
+  private static User user(Position position, Material low, double height, int blockY, int blockZ) {
     MockFullBlockStaticPlane plane = MockFullBlockStaticPlane.createWithHorizontalPlaneAt(0);
     BlockCache cache = (BlockCache) Proxy.newProxyInstance(
       BlockCache.class.getClassLoader(), new Class[] {BlockCache.class},
       (proxy, method, args) -> {
         if (args != null && args.length >= 3 && args[0] instanceof Integer && args[1] instanceof Integer && args[2] instanceof Integer) {
           int x = (Integer) args[0], y = (Integer) args[1], z = (Integer) args[2];
-          if (y == 1 && z == 1 && x >= -2 && x <= 2) {
-            BlockShape shape = BoundingBox.fromBounds(x, 1, z, x + 1, 1 + height, z + 1);
+          if (y == blockY && z >= blockZ && z <= blockZ + 3 && x >= -2 && x <= 2) {
+            BlockShape shape = BoundingBox.fromBounds(x, y, z, x + 1, y + height, z + 1);
             switch (method.getName()) {
               case "collisionShapeAt":
               case "outlineShapeAt":
