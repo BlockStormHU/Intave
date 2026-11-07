@@ -49,7 +49,7 @@ public final class Speed extends PlayerCheckPart<PlacementAnalysis> {
 		}
 	)
 	public void receivePlacementPacket(User user, PacketType type, BlockInteractionReader reader) {
-		if (type != PacketType.Play.Client.BLOCK_PLACE) {
+		if (!reader.isLegacyBlockPlacePacket()) {
 			return;
 		}
 		if (reader.enumDirection() == 255) {

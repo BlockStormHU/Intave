@@ -46,7 +46,7 @@ public final class Sneak extends PlayerCheckPart<PlacementAnalysis> {
 		}
 	)
 	public void receivePlacementPacket(User user, PacketType type, BlockInteractionReader reader) {
-		if (type != PacketType.Play.Client.BLOCK_PLACE || reader.enumDirection() == 255) {
+		if (!reader.isLegacyBlockPlacePacket() || reader.enumDirection() == 255) {
 			return;
 		}
 		Material held = user.meta().inventory().heldItemType();
