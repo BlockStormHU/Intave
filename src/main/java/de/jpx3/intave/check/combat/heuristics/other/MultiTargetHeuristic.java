@@ -53,17 +53,10 @@ public final class MultiTargetHeuristic extends ClassicHeuristic<MultiTargetHeur
     }
     MultiTargetMeta meta = metaOf(user);
     int entityId = reader.entityId();
-    if (meta.targetThisTick == NO_TARGET) {
-      meta.targetThisTick = entityId;
-      return;
-    }
-    if (meta.targetThisTick != entityId && !meta.recordedThisTick) {
-      meta.recordedThisTick = true;
-      if (meta.evidence.record(System.currentTimeMillis())) {
-        flag(user, "attacked multiple entities in one tick",
-          "entities " + meta.targetThisTick + ", " + entityId + ", " + meta.evidence.count() + " times");
-        user.nerf(AttackNerfStrategy.CANCEL, "multi-target");
-      }
+    if (meta.attack(entityId) && meta.evidence.record(System.currentTimeMillis())) {
+      flag(user, "attacked multiple entities in one tick",
+        "entities " + meta.targetThisTick + ", " + entityId + ", " + meta.evidence.count() + " times");
+      user.nerf(AttackNerfStrategy.CANCEL, "multi-target");
     }
   }
 
@@ -75,7 +68,7 @@ public final class MultiTargetHeuristic extends ClassicHeuristic<MultiTargetHeur
   )
   public void receiveMovement(User user) {
     if (ClientTickBoundary.endedByMovement(user)) {
-      endTick(metaOf(user));
+      metaOf(user).endTick();
     }
   }
 
@@ -86,13 +79,8 @@ public final class MultiTargetHeuristic extends ClassicHeuristic<MultiTargetHeur
   public void receiveTickEnd(User user) {
     ClientTickBoundary.observeTickEnd(user);
     if (ClientTickBoundary.endedByTickEnd(user)) {
-      endTick(metaOf(user));
+      metaOf(user).endTick();
     }
-  }
-
-  private static void endTick(MultiTargetMeta meta) {
-    meta.targetThisTick = NO_TARGET;
-    meta.recordedThisTick = false;
   }
 
   private static boolean checkable(User user) {
@@ -106,5 +94,23 @@ public final class MultiTargetHeuristic extends ClassicHeuristic<MultiTargetHeur
     private int targetThisTick = NO_TARGET;
     private boolean recordedThisTick;
     private final RepeatedEvidence evidence = new RepeatedEvidence(2, 60_000);
+
+    /** Records an attack; true the first time a second, different entity is attacked in this tick. */
+    boolean attack(int entityId) {
+      if (targetThisTick == NO_TARGET) {
+        targetThisTick = entityId;
+        return false;
+      }
+      if (targetThisTick == entityId || recordedThisTick) {
+        return false;
+      }
+      recordedThisTick = true;
+      return true;
+    }
+
+    void endTick() {
+      targetThisTick = NO_TARGET;
+      recordedThisTick = false;
+    }
   }
 }

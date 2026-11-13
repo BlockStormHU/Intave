@@ -1,6 +1,7 @@
 package de.jpx3.intave.check.world.placementanalysis;
 
 import com.comphenix.protocol.PacketType;
+import com.comphenix.protocol.wrappers.BlockPosition;
 import de.jpx3.intave.check.PlayerCheckPart;
 import de.jpx3.intave.check.world.PlacementAnalysis;
 import de.jpx3.intave.cleanup.GarbageCollector;
@@ -55,13 +56,20 @@ public final class Speed extends PlayerCheckPart<PlacementAnalysis> {
 		if (reader.enumDirection() == 255) {
 			lastHardFaultClick = System.currentTimeMillis();
 		} else if (holdsPlaceableBlock(user)) {
-			arrivals.packetReceived(System.currentTimeMillis());
+			recordArrival(reader);
 		}
 	}
 
 	private static boolean holdsPlaceableBlock(User user) {
 		Material held = user.meta().inventory().heldItemType();
 		return held != null && held.isBlock() && held.isSolid();
+	}
+
+	private void recordArrival(BlockInteractionReader reader) {
+		BlockPosition clicked = reader.blockPosition();
+		if (clicked != null) {
+			arrivals.packetReceived(System.currentTimeMillis(), clicked.getX(), clicked.getY(), clicked.getZ());
+		}
 	}
 
 	@BukkitEventSubscription
@@ -75,7 +83,9 @@ public final class Speed extends PlayerCheckPart<PlacementAnalysis> {
 		Block blockAgainst = place.getBlockAgainst();
 
 		// time the placement by its packet, not by this (possibly lag-delayed) server-thread event
-		long placedAt = arrivals.placedAt(System.currentTimeMillis());
+		long placedAt = arrivals.placedAt(
+			System.currentTimeMillis(), blockAgainst.getX(), blockAgainst.getY(), blockAgainst.getZ()
+		);
 		if (blockUnderPlayer(block, player) && blockCollisions(block) < 2) {
 			List<Long> placementSpeedHistory = this.placementSpeedHistory;
 

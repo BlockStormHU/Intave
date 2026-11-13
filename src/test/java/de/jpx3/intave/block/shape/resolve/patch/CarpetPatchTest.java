@@ -8,6 +8,7 @@ import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class CarpetPatchTest {
@@ -27,5 +28,14 @@ final class CarpetPatchTest {
     BlockShape patched = new CarpetPatch().collisionPatch(null, null, 0, 0, 0, Material.WHITE_CARPET, 0, vanilla);
     assertEquals(vanilla.max(Direction.Axis.Y_AXIS), patched.max(Direction.Axis.Y_AXIS), 1.0E-9);
     assertTrue(new CarpetPatch().appliesTo(Material.WHITE_CARPET));
+  }
+
+  @Test
+  void keepsTheServerShapeOfPaleMossCarpet() {
+    // the hanging parts above the base carpet have no collision box
+    BlockShape hanging = BlockShapes.emptyShape();
+    Material paleMoss = Material.valueOf("PALE_MOSS_CARPET");
+    assertTrue(new CarpetPatch().appliesTo(paleMoss));
+    assertSame(hanging, new CarpetPatch().collisionPatch(null, null, 0, 65, 0, paleMoss, 0, hanging));
   }
 }

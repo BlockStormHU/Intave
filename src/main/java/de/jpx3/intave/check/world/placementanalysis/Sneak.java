@@ -14,6 +14,7 @@ import de.jpx3.intave.user.meta.EffectMetadata;
 import de.jpx3.intave.user.meta.MetadataBundle;
 import de.jpx3.intave.user.meta.MovementMetadata;
 import com.comphenix.protocol.PacketType;
+import com.comphenix.protocol.wrappers.BlockPosition;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -51,7 +52,14 @@ public final class Sneak extends PlayerCheckPart<PlacementAnalysis> {
 		}
 		Material held = user.meta().inventory().heldItemType();
 		if (held != null && held.isBlock() && held.isSolid()) {
-			arrivals.packetReceived(System.currentTimeMillis());
+			recordArrival(reader);
+		}
+	}
+
+	private void recordArrival(BlockInteractionReader reader) {
+		BlockPosition clicked = reader.blockPosition();
+		if (clicked != null) {
+			arrivals.packetReceived(System.currentTimeMillis(), clicked.getX(), clicked.getY(), clicked.getZ());
 		}
 	}
 
@@ -65,7 +73,9 @@ public final class Sneak extends PlayerCheckPart<PlacementAnalysis> {
 		Block block = place.getBlockPlaced();
 		Block blockAgainst = place.getBlockAgainst();
 		// time the placement by its packet, not by this (possibly lag-delayed) server-thread event
-		long placedAt = arrivals.placedAt(System.currentTimeMillis());
+		long placedAt = arrivals.placedAt(
+			System.currentTimeMillis(), blockAgainst.getX(), blockAgainst.getY(), blockAgainst.getZ()
+		);
 		if (blockUnderPlayer(block, player) && blockCollisions(block) < 2) {
 			List<Long> placementSpeedHistory = this.placementSpeedHistory;
 			if (placementSpeedHistory.size() >= CHECK_LENGTH) {

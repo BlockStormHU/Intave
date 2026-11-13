@@ -39,7 +39,9 @@ public final class PacketPlayerActionToggleHeuristic extends ClassicHeuristic<Pa
     }
   )
   public void receiveMovementPacket(User user) {
-    if (ClientTickBoundary.endedByMovement(user)) {
+    // Clients without visible tick ends are never flagged; resetting here keeps their counters
+    // from growing without bound.
+    if (!ClientTickBoundary.endedByTickEnd(user)) {
       metaOf(user).reset();
     }
   }

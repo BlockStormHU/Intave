@@ -12,8 +12,12 @@ final class CarpetPatch extends BlockShapePatch {
     // Clients always collide with a 1/16 carpet. Some 1.8 forks remove the server-side box
     // (Carbon PREVENT-CARPET-STUCK-GLITCH), which made every step onto a carpet a physics flag.
     // 1.7 clients are handled by CarpetCollisionModifier.
-    return CARPET;
+    // Pale moss carpet (1.21.4+) is no plain carpet: only its base state collides, the hanging
+    // parts on top of it have no collision box, so the server's shape is kept.
+    return PALE_MOSS_CARPET.equals(type.name()) ? shape : CARPET;
   }
+
+  private static final String PALE_MOSS_CARPET = "PALE_MOSS_CARPET";
 
   private static final BlockShape CARPET = BoundingBox.originFrom(0.0F, 0.0F, 0.0F, 1.0F, 0.0625F, 1.0F);
 

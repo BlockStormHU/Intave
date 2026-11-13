@@ -42,9 +42,17 @@ public final class BlockInteractionReader extends BlockPositionReader {
    * as USE_ITEM_ON on 1.8 servers, so comparing against BLOCK_PLACE alone never matches there.
    */
   public boolean isLegacyBlockPlacePacket() {
-    PacketType type = packet().getType();
+    return isLegacyBlockPlace(packet().getType(), SEPARATE_USE_ITEM_PACKET);
+  }
+
+  static boolean isLegacyBlockPlace(PacketType type, boolean separateUseItemPacket) {
+    if (separateUseItemPacket) {
+      // 1.9+ servers keep the identity check the callers were written with. ProtocolLib 5 defines
+      // BLOCK_PLACE as a clone of USE_ITEM_ON, so equals() would also match every modern block click.
+      return type == PacketType.Play.Client.BLOCK_PLACE;
+    }
     return type.equals(PacketType.Play.Client.BLOCK_PLACE)
-      || !SEPARATE_USE_ITEM_PACKET && type.equals(PacketType.Play.Client.USE_ITEM_ON);
+      || type.equals(PacketType.Play.Client.USE_ITEM_ON);
   }
 
   public boolean isItemUseRequest() {

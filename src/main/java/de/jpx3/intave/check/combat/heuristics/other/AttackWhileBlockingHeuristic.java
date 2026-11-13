@@ -29,6 +29,7 @@ import de.jpx3.intave.player.ItemProperties;
 import de.jpx3.intave.share.PlayerHand;
 import de.jpx3.intave.user.User;
 import de.jpx3.intave.user.meta.CheckCustomMetadata;
+import de.jpx3.intave.user.meta.InventoryMetadata;
 import de.jpx3.intave.user.meta.ProtocolMetadata;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
@@ -55,9 +56,17 @@ import static de.jpx3.intave.module.linker.packet.PacketId.Server.WINDOW_ITEMS;
  * both client and server are 1.8, the shield in either hand when both are 1.9+. Mixed versions are
  * skipped, since protocol translation lets the client and the server disagree about blocking. The
  * client can stop silently when its item is replaced (1.8-1.13: any new stack in the blocking
- * hand, as sword durability updates after hits; 1.14+: another item type), its hands swapped or a
- * cooldown set, so those end the tracked block (missing a flag rather than raising a wrong one). Only
- * the order of the client's own packets is compared, so latency cannot cause a detection.
+ * hand, as sword durability updates after hits; 1.14+: another item type), its hands swapped, an
+ * item dropped or clicked in the inventory, or a cooldown set, so those end the tracked block
+ * (missing a flag rather than raising a wrong one).
+ *
+ * <p>Server packets that end a block silently are applied when they are sent and again when the
+ * client acknowledges them (tick feedback): a use packet the client sent before it received the
+ * replacement arrives after the send but before the acknowledgement, and is ended by the second
+ * pass. A separate transaction is used rather than bundling with the packet, since bundling
+ * cancels and re-sends it, which would collide with PlayerHandTracker's own bundle of the same
+ * packet. Only the order of the client's own packets is compared, so latency cannot cause a
+ * detection.
  */
 public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackWhileBlockingHeuristic.BlockingStateMeta> {
   public AttackWhileBlockingHeuristic(Heuristics parentCheck) {
@@ -78,10 +87,7 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
     PlayerHand hand = reader.hand();
     ItemStack item = user.meta().inventory().itemInHand(hand);
     if (startsBlocking(user, item)) {
-      BlockingStateMeta meta = metaOf(user);
-      meta.blocking = true;
-      meta.hand = hand;
-      meta.itemType = item.getType();
+      metaOf(user).startBlocking(hand, item.getType());
     }
   }
 
@@ -94,10 +100,19 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
       // 1.8 client on a 1.8 server: sword blocking
       return ItemProperties.isSwordItem(item);
     }
-    if (protocol.combatUpdate() && MinecraftVersions.VER1_9_0.atOrAbove()) {
+    if (blocksWithShield(protocol)) {
       return "SHIELD".equals(item.getType().name());
     }
     return false;
+  }
+
+  private static boolean blocksWithShield(ProtocolMetadata protocol) {
+    return protocol.combatUpdate() && MinecraftVersions.VER1_9_0.atOrAbove();
+  }
+
+  private static boolean canBlock(User user) {
+    ProtocolMetadata protocol = user.meta().protocol();
+    return protocol.emptyFlyingPacketsAreExplicitlySent() || blocksWithShield(protocol);
   }
 
   @PacketSubscription(
@@ -107,20 +122,23 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
   public void receiveDig(User user, BlockDigReader reader) {
     BlockingStateMeta meta = metaOf(user);
     EnumWrappers.PlayerDigType action = reader.action();
-    if (action == EnumWrappers.PlayerDigType.RELEASE_USE_ITEM && meta.blocking) {
-      meta.blocking = false;
-      meta.releasedThisTick = true;
-    } else if (action == EnumWrappers.PlayerDigType.SWAP_HELD_ITEMS) {
-      meta.blocking = false;
+    if (action == EnumWrappers.PlayerDigType.RELEASE_USE_ITEM) {
+      meta.release();
+    } else if (action == EnumWrappers.PlayerDigType.SWAP_HELD_ITEMS
+      || action == EnumWrappers.PlayerDigType.DROP_ITEM
+      || action == EnumWrappers.PlayerDigType.DROP_ALL_ITEMS) {
+      meta.stopBlocking();
     }
   }
 
   @PacketSubscription(
     priority = ListenerPriority.LOWEST,
-    packetsIn = HELD_ITEM_SLOT_IN
+    packetsIn = {
+      HELD_ITEM_SLOT_IN, WINDOW_CLICK
+    }
   )
-  public void receiveSlotChange(User user) {
-    metaOf(user).blocking = false;
+  public void receiveInventoryAction(User user) {
+    metaOf(user).stopBlocking();
   }
 
   @PacketSubscription(
@@ -130,28 +148,20 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
   )
   public void sentItems(User user, WindowItemReader reader) {
     BlockingStateMeta meta = metaOf(user);
-    if (!meta.blocking) {
+    if (!mayBlockBeforeReceipt(user, meta)) {
       return;
     }
-    int windowId = reader.windowId();
-    if (windowId != 0 && windowId != -2) {
-      // another container is open: its slot numbers are not tracked here
-      meta.blocking = false;
+    SlotReplacement replacement = SlotReplacement.of(
+      reader.windowId(), user.meta().inventory().handSlot(), reader.itemMap()
+    );
+    if (replacement == null || replacement.foreignWindow && !meta.blocking()) {
+      // a block started later cannot have been running while another container was open
       return;
     }
-    boolean offHand = meta.hand == PlayerHand.OFF_HAND;
-    int heldSlot = user.meta().inventory().handSlot();
-    int slot = windowId == -2 ? (offHand ? 40 : heldSlot) : (offHand ? 45 : 36 + heldSlot);
-    Map<Integer, ItemStack> items = reader.itemMap();
-    if (!items.containsKey(slot)) {
-      return;
-    }
-    ItemStack replacement = items.get(slot);
-    Material type = replacement == null || replacement.getAmount() == 0 ? Material.AIR : replacement.getType();
     // same rule as InventoryMetadata#applyClientActiveItemReplacement
-    if (user.meta().protocol().protocolVersion() < ProtocolMetadata.VER_1_14 || type != meta.itemType) {
-      meta.blocking = false;
-    }
+    boolean anyNewStack = user.meta().protocol().protocolVersion() < ProtocolMetadata.VER_1_14;
+    meta.applyReplacement(replacement, anyNewStack);
+    user.tickFeedback(() -> meta.applyReplacement(replacement, anyNewStack));
   }
 
   @PacketSubscription(
@@ -160,7 +170,25 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
     }
   )
   public void sentInventoryChange(User user) {
-    metaOf(user).blocking = false;
+    BlockingStateMeta meta = metaOf(user);
+    if (mayBlockBeforeReceipt(user, meta)) {
+      meta.stopBlocking();
+      user.tickFeedback(meta::stopBlocking);
+    }
+  }
+
+  /**
+   * Whether the client may be blocking by the time it receives a packet sent now. Starting a block
+   * needs a blocking item in hand already, so everyone else is skipped without extra feedback.
+   */
+  private static boolean mayBlockBeforeReceipt(User user, BlockingStateMeta meta) {
+    if (!canBlock(user)) {
+      return false;
+    }
+    InventoryMetadata inventory = user.meta().inventory();
+    return meta.blocking()
+      || startsBlocking(user, inventory.heldItem())
+      || startsBlocking(user, inventory.offhandItem());
   }
 
   @PacketSubscription(
@@ -174,19 +202,8 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
       return;
     }
     BlockingStateMeta meta = metaOf(user);
-    if (meta.recordedThisTick) {
-      return;
-    }
-    String message;
-    if (meta.blocking) {
-      message = "attacked while blocking";
-    } else if (meta.releasedThisTick && ClientTickBoundary.exact(user)) {
-      message = "attacked in the same tick as unblocking";
-    } else {
-      return;
-    }
-    meta.recordedThisTick = true;
-    if (meta.evidence.record(System.currentTimeMillis())) {
+    String message = meta.attack(ClientTickBoundary.exact(user));
+    if (message != null && meta.evidence.record(System.currentTimeMillis())) {
       flag(user, message, meta.evidence.count() + " times");
       user.nerf(AttackNerfStrategy.CANCEL, "attack-while-blocking");
     }
@@ -201,10 +218,10 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
   public void receiveMovement(User user) {
     BlockingStateMeta meta = metaOf(user);
     if (user.meta().movement().ticksPast(TELEPORT) <= 1) {
-      meta.blocking = false;
+      meta.stopBlocking();
     }
     // a movement packet always belongs to a later input pass than the release before it
-    endTick(meta);
+    meta.endTick();
   }
 
   @PacketSubscription(
@@ -213,12 +230,7 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
   )
   public void receiveTickEnd(User user) {
     ClientTickBoundary.observeTickEnd(user);
-    endTick(metaOf(user));
-  }
-
-  private static void endTick(BlockingStateMeta meta) {
-    meta.releasedThisTick = false;
-    meta.recordedThisTick = false;
+    metaOf(user).endTick();
   }
 
   private static boolean checkable(User user) {
@@ -226,12 +238,134 @@ public final class AttackWhileBlockingHeuristic extends ClassicHeuristic<AttackW
       && user.meta().movement().ticksPast(TELEPORT) > 1;
   }
 
+  /**
+   * The hand slots a clientbound inventory packet replaces, captured when it is sent. The held slot
+   * is read at send time; changing it later sends HELD_ITEM_SLOT, which ends the block anyway.
+   */
+  static final class SlotReplacement {
+    final boolean foreignWindow;
+    final boolean mainHandReplaced, offHandReplaced;
+    final Material mainHandType, offHandType;
+
+    private SlotReplacement(
+      boolean foreignWindow,
+      boolean mainHandReplaced, Material mainHandType,
+      boolean offHandReplaced, Material offHandType
+    ) {
+      this.foreignWindow = foreignWindow;
+      this.mainHandReplaced = mainHandReplaced;
+      this.mainHandType = mainHandType;
+      this.offHandReplaced = offHandReplaced;
+      this.offHandType = offHandType;
+    }
+
+    /**
+     * @return the replacement, or null if the packet touches neither hand slot
+     */
+    static SlotReplacement of(int windowId, int heldSlot, Map<Integer, ItemStack> items) {
+      if (windowId != 0 && windowId != -2) {
+        // another container is open: its slot numbers are not tracked here
+        return new SlotReplacement(true, false, null, false, null);
+      }
+      int mainSlot = windowId == -2 ? heldSlot : 36 + heldSlot;
+      int offSlot = windowId == -2 ? 40 : 45;
+      boolean main = items.containsKey(mainSlot);
+      boolean off = items.containsKey(offSlot);
+      if (!main && !off) {
+        return null;
+      }
+      return new SlotReplacement(
+        false,
+        main, main ? typeOf(items.get(mainSlot)) : null,
+        off, off ? typeOf(items.get(offSlot)) : null
+      );
+    }
+
+    private static Material typeOf(ItemStack stack) {
+      return stack == null || stack.getAmount() == 0 ? Material.AIR : stack.getType();
+    }
+  }
+
   public static final class BlockingStateMeta extends CheckCustomMetadata {
-    private boolean blocking;
+    // Written on the client's packet thread and, to end a block, on the sending thread. Volatile
+    // and assigned last in startBlocking, so a sender that sees a block also sees its hand and item.
+    private volatile boolean blocking;
     private PlayerHand hand;
     private Material itemType;
     private boolean releasedThisTick;
     private boolean recordedThisTick;
     private final RepeatedEvidence evidence = new RepeatedEvidence(2, 60_000);
+
+    void startBlocking(PlayerHand hand, Material itemType) {
+      this.hand = hand;
+      this.itemType = itemType;
+      this.blocking = true;
+    }
+
+    void release() {
+      if (blocking) {
+        blocking = false;
+        releasedThisTick = true;
+      }
+    }
+
+    void stopBlocking() {
+      blocking = false;
+    }
+
+    boolean blocking() {
+      return blocking;
+    }
+
+    /**
+     * Applies a clientbound inventory update once the client has received it.
+     *
+     * @param anyNewStack whether any new stack in the blocking hand ends the block (1.8-1.13),
+     *                    rather than only another item type (1.14+)
+     */
+    void applyReplacement(SlotReplacement replacement, boolean anyNewStack) {
+      if (!blocking) {
+        return;
+      }
+      if (replacement.foreignWindow) {
+        blocking = false;
+        return;
+      }
+      boolean offHand = hand == PlayerHand.OFF_HAND;
+      if (!(offHand ? replacement.offHandReplaced : replacement.mainHandReplaced)) {
+        return;
+      }
+      Material type = offHand ? replacement.offHandType : replacement.mainHandType;
+      if (anyNewStack || type != itemType) {
+        blocking = false;
+      }
+    }
+
+    /**
+     * Records an attack.
+     *
+     * @param exactTickBoundary whether every client tick end is visible for this client
+     * @return the detection message, or null if the attack is legitimate or this tick already counted
+     */
+    String attack(boolean exactTickBoundary) {
+      if (recordedThisTick) {
+        return null;
+      }
+      String message;
+      if (blocking) {
+        message = "attacked while blocking";
+      } else if (releasedThisTick && exactTickBoundary) {
+        message = "attacked in the same tick as unblocking";
+      } else {
+        return null;
+      }
+      recordedThisTick = true;
+      return message;
+    }
+
+    void endTick() {
+      releasedThisTick = false;
+      recordedThisTick = false;
+    }
   }
 }
