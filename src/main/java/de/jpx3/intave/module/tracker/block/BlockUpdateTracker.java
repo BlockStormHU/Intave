@@ -158,7 +158,8 @@ public final class BlockUpdateTracker extends Module {
       EnumWrappers.PlayerDigType playerDigType = ((BlockDigReader) reader).action();
       if (playerDigType == null) return;
       check = playerDigType == START_DESTROY_BLOCK || playerDigType == STOP_DESTROY_BLOCK || playerDigType == ABORT_DESTROY_BLOCK;
-    } else if (packetType == PacketType.Play.Client.BLOCK_PLACE) {
+    } else if (reader instanceof BlockInteractionReader
+      && ((BlockInteractionReader) reader).isLegacyBlockPlacePacket()) {
       BlockPosition blockPosition = reader.blockPosition();
       if (blockPosition == null) {
         return;

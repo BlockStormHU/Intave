@@ -1,10 +1,12 @@
 package de.jpx3.intave.command.stages;
 
+import de.jpx3.intave.IntaveLogger;
 import de.jpx3.intave.IntavePlugin;
 import de.jpx3.intave.command.CommandStage;
 import de.jpx3.intave.command.SubCommand;
 import de.jpx3.intave.executor.Synchronizer;
 import de.jpx3.intave.module.Modules;
+import de.jpx3.intave.module.mitigate.SharedAddresses;
 import de.jpx3.intave.user.User;
 import de.jpx3.intave.user.UserRepository;
 import de.jpx3.intave.user.storage.LongTermViolationStorage;
@@ -13,6 +15,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.net.InetAddress;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 
@@ -114,8 +117,15 @@ public final class InternalsStage extends CommandStage {
   )
   public void collectiveKick(CommandSender commandSender, Player target, String[] messageParts) {
     String message = Arrays.stream(messageParts).map(s -> s + " ").collect(Collectors.joining()).trim();
+    InetAddress targetAddress = target.getAddress() == null ? null : target.getAddress().getAddress();
+    if (SharedAddresses.isShared(targetAddress)) {
+      // a proxy without IP forwarding: every player shares this address
+      IntaveLogger.logger().info("Skipped IP kick for " + target.getName() + ", " + targetAddress + " is a proxy/local address");
+      return;
+    }
     for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
-      if (!onlinePlayer.equals(target) && onlinePlayer.getAddress().getAddress().equals(target.getAddress().getAddress())) {
+      if (!onlinePlayer.equals(target) && onlinePlayer.getAddress() != null
+        && onlinePlayer.getAddress().getAddress().equals(targetAddress)) {
         String parsedMessage = ChatColor.translateAlternateColorCodes('&', message);
         User user = UserRepository.userOf(onlinePlayer);
         Synchronizer.synchronize(user, () -> onlinePlayer.kickPlayer(parsedMessage));

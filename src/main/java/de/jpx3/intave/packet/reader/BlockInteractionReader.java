@@ -36,6 +36,25 @@ public final class BlockInteractionReader extends BlockPositionReader {
     return PlayerHandConverter.fromProtocolLib(packet().getHands().readSafely(0));
   }
 
+  /**
+   * Returns whether this is the pre-1.9 block placement packet (C08PacketPlayerBlockPlacement),
+   * which also carries right clicks in the air (face 255). ProtocolLib 5 registers that packet
+   * as USE_ITEM_ON on 1.8 servers, so comparing against BLOCK_PLACE alone never matches there.
+   */
+  public boolean isLegacyBlockPlacePacket() {
+    return isLegacyBlockPlace(packet().getType(), SEPARATE_USE_ITEM_PACKET);
+  }
+
+  static boolean isLegacyBlockPlace(PacketType type, boolean separateUseItemPacket) {
+    if (separateUseItemPacket) {
+      // 1.9+ servers keep the identity check the callers were written with. ProtocolLib 5 defines
+      // BLOCK_PLACE as a clone of USE_ITEM_ON, so equals() would also match every modern block click.
+      return type == PacketType.Play.Client.BLOCK_PLACE;
+    }
+    return type.equals(PacketType.Play.Client.BLOCK_PLACE)
+      || type.equals(PacketType.Play.Client.USE_ITEM_ON);
+  }
+
   public boolean isItemUseRequest() {
     return SEPARATE_USE_ITEM_PACKET || enumDirection() == 255;
   }

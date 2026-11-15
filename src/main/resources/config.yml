@@ -26,7 +26,7 @@ cloud-token: "ct_EXAMPLE-TOKEN"
 #   FALSE POSITIVES? -> REPORT THEM
 physics-mm: BARELY
 
-# Rejoin delay after issued kick (in seconds)
+# Rejoin delay after issued kick (in ticks, 20 ticks = 1 second)
 rejoin-delay: 3600
 
 # Cloud privacy control

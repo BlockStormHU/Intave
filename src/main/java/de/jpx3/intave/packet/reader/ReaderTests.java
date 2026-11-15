@@ -31,6 +31,7 @@ import de.jpx3.intave.check.world.interaction.Interaction;
 import de.jpx3.intave.check.world.interaction.InteractionType;
 import de.jpx3.intave.entity.size.HitboxSize;
 import de.jpx3.intave.entity.type.EntityTypeData;
+import de.jpx3.intave.executor.task.Tasks;
 import de.jpx3.intave.module.dispatch.AttackDispatcher;
 import de.jpx3.intave.module.feedback.EmptyFeedbackCallback;
 import de.jpx3.intave.module.linker.packet.ForwardingPacketAdapter;
@@ -269,6 +270,10 @@ public final class ReaderTests extends IntegrationTests {
 
   @Test(testCode = "native-scoreboard", severity = Severity.ERROR)
   public void testNativeScoreboardPackets() throws ReflectiveOperationException {
+    if (Tasks.isFoliaServer()) {
+      // Folia does not support the Bukkit scoreboard API this test builds its packets with
+      return;
+    }
     org.bukkit.scoreboard.Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
     org.bukkit.scoreboard.Objective objective = board.registerNewObjective("reader", "dummy");
     objective.setDisplayName("Reader title");

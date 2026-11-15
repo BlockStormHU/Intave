@@ -55,7 +55,7 @@ public class SmartSpeed extends PlayerCheckPart<PlacementAnalysis> {
 		}
 	)
 	public void receivePlacementPacket(User user, PacketType packetType, BlockInteractionReader reader) {
-		if (packetType == PacketType.Play.Client.BLOCK_PLACE) {
+		if (reader.isLegacyBlockPlacePacket()) {
 			int facing = reader.enumDirection();
 			if (facing == 255) {
 				ticksSinceHardFaultClick = 0;

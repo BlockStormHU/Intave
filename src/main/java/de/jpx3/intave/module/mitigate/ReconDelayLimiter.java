@@ -62,7 +62,7 @@ public final class ReconDelayLimiter extends Module {
   }
 
   public void ban(InetAddress address, UUID uuid, String check) {
-    if (!address.getHostAddress().contains("127.0.0.1")) {
+    if (!SharedAddresses.isShared(address)) {
       lastKickedIp.put(address, System.currentTimeMillis());
     }
     lastKicked.put(uuid, System.currentTimeMillis());

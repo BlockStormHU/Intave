@@ -229,6 +229,17 @@ class BaseSimulator extends Simulator {
       return;
     }
 
+    if (!simulateFluidJump(user, motion, environment) && environment.lastOnGround()) {
+      simulateGroundJump(user, motion, environment, configuration);
+    }
+  }
+
+  /**
+   * Applies #handleJumpWater / #handleJumpLava.
+   *
+   * @return whether the jump input was consumed by a fluid
+   */
+  private boolean simulateFluidJump(User user, Motion motion, SimulationEnvironment environment) {
     ProtocolMetadata protocol = user.meta().protocol();
     boolean inWater = environment.inWater();
     boolean allowJumpInLiquid = false;
@@ -253,12 +264,13 @@ class BaseSimulator extends Simulator {
     }
     if (inWater && !allowJumpInLiquid) {
       motion.motionY += 0.04F;
-    } else if (environment.inLava() && !allowGroundJumpInLava) {
-      // #handleJumpLava
-      motion.motionY += 0.04F;
-    } else if (environment.lastOnGround()) {
-      simulateGroundJump(user, motion, environment, configuration);
+      return true;
     }
+    if (environment.inLava() && !allowGroundJumpInLava) {
+      motion.motionY += 0.04F;
+      return true;
+    }
+    return false;
   }
 
   private void simulateGroundJump(
@@ -298,13 +310,18 @@ class BaseSimulator extends Simulator {
       if (verticalInput != 0) {
         motion.motionY += (double) (verticalInput * flyingStep);
       }
-      return;
+    } else {
+      if (environment.isSneaking()) {
+        motion.motionY -= (double) flyingStep;
+      }
+      if (jumping) {
+        motion.motionY += (double) flyingStep;
+      }
     }
-    if (environment.isSneaking()) {
-      motion.motionY -= (double) flyingStep;
-    }
-    if (jumping) {
-      motion.motionY += (double) flyingStep;
+    if (jumping && protocol.protocolVersion() < ProtocolMetadata.VER_1_16_4) {
+      // Before 1.16.4, LivingEntity's jump handling did not check ability flight:
+      // holding jump inside water or lava adds the swim-up impulse on top of the flight step.
+      simulateFluidJump(user, motion, environment);
     }
   }
 

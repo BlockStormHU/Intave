@@ -335,9 +335,9 @@ public final class ViolationProcessor extends Module {
 
   private void executeCommand(ViolationContext violationContext, String command) {
     Violation violation = violationContext.violation();
-    Player player = violation.findPlayer().orElseThrow(IllegalStateException::new);
-    User user = UserRepository.userOf(player);
-	  Synchronizer.synchronize(user, () -> {
+    violation.findPlayer().orElseThrow(IllegalStateException::new);
+    // threshold commands (notify, kick, ban) are console commands: global thread on Folia
+    Synchronizer.synchronizeGlobally(() -> {
       String resolvedCommand = command.replace("{log-id}", "No Log-Id");
       plugin.logger().commandExecution(resolvedCommand);
       Bukkit.dispatchCommand(Bukkit.getConsoleSender(), resolvedCommand);

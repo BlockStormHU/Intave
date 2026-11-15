@@ -25,12 +25,26 @@ public enum HeuristicsClassicType {
   NO_SWING("no-swing"),
   SWING_ORDER("swing-order"),
   SPRINT_TOGGLES("sprint-toggles"),
-  TOOL_SWITCH("tool-switch");
+  TOOL_SWITCH("tool-switch"),
+  // Behaviour a vanilla 1.8 client cannot produce; defaults apply when the key is missing from the config.
+  MULTI_TARGET("multi-target", 5),
+  ATTACK_WHILE_BLOCKING("attack-while-blocking", 5),
+  ROTATION_DUPLICATE("rotation-duplicate", 3);
 
   private final String configurationName;
+  private final int defaultViolationLevel;
 
   HeuristicsClassicType(String configurationName) {
+    this(configurationName, 0);
+  }
+
+  HeuristicsClassicType(String configurationName, int defaultViolationLevel) {
     this.configurationName = configurationName;
+    this.defaultViolationLevel = defaultViolationLevel;
+  }
+
+  public int defaultViolationLevel() {
+    return defaultViolationLevel;
   }
 
   public String configurationName() {

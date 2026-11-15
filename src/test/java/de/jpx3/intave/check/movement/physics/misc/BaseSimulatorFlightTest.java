@@ -157,6 +157,57 @@ final class BaseSimulatorFlightTest {
   }
 
   @Test
+  void legacyFlightJumpInWaterAddsSwimImpulse() {
+    assertFlightJumpInFluid(true, VER_1_8, FLYING_STEP + (double) 0.04F);
+    assertFlightJumpInFluid(true, VER_1_12, FLYING_STEP + (double) 0.04F);
+    assertFlightJumpInFluid(true, VER_1_16_4, FLYING_STEP);
+  }
+
+  @Test
+  void legacyFlightJumpInLavaAddsSwimImpulse() {
+    // 1.8 derives lava from blocks; 1.15 still lacks the flight check but reads the lava flag
+    assertFlightJumpInFluid(false, VER_1_15, FLYING_STEP + (double) 0.04F);
+    assertFlightJumpInFluid(false, VER_1_16_4, FLYING_STEP);
+  }
+
+  @Test
+  void legacyFlightJumpOutsideFluidOnlyUsesFlightStep() {
+    TestContext context = context(VER_1_8, true, false);
+    double motionY = simulate(context, MovementConfiguration.blank().withJump()).actualMotion().motionY;
+    assertEquals(FLYING_STEP, motionY, EPSILON);
+  }
+
+  /**
+   * A 1.8 client flying up through water: without the swim impulse the prediction
+   * fell behind by up to 0.1 blocks per tick (0.04 accumulated through the 0.6 flight drag).
+   */
+  @Test
+  void legacyFlightJumpInWaterMatchesClientVerticalSpeed() {
+    TestContext context = context(VER_1_8, true, false);
+    context.environment.setInWater(true);
+    MovementConfiguration jump = MovementConfiguration.blank().withJump();
+    double clientMotionY = 0.0D;
+    Motion motion = Motion.newEmpty();
+    for (int tick = 0; tick < 30; tick++) {
+      Simulation simulation = simulate(context, motion, jump);
+      Motion travel = simulation.actualMotion();
+      clientMotionY += 0.15F;
+      clientMotionY += 0.03999999910593033D;
+      assertEquals(clientMotionY, travel.motionY, EPSILON);
+      clientMotionY *= 0.6D;
+      motion = new Motion(0.0D, travel.motionY * 0.6D, 0.0D);
+    }
+  }
+
+  private static void assertFlightJumpInFluid(boolean water, int protocolVersion, double expectedMotionY) {
+    TestContext context = context(protocolVersion, true, false);
+    context.environment.setInWater(water);
+    context.environment.setInLava(!water);
+    double motionY = simulate(context, MovementConfiguration.blank().withJump()).actualMotion().motionY;
+    assertEquals(expectedMotionY, motionY, EPSILON);
+  }
+
+  @Test
   void collisionDoesNotChangeStoredVerticalFlightSpeed() {
     TestContext context = context(VER_1_21_4, true, false);
     Motion travelInput = new Motion(0.0D, 0.3D, 0.0D);
